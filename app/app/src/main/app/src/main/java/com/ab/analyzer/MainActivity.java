@@ -5,23 +5,14 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.graphics.Color;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.*;
+import android.text.InputType;
 import java.util.*;
 
 public class MainActivity extends Activity {
 
     EditText playerA, playerB;
     TextView result;
-
-    static class Card {
-        int rank;
-        char suit;
-        Card(int r, char s) {
-            rank = r;
-            suit = s;
-        }
-    }
 
     static class Hand {
         int type;
@@ -38,6 +29,9 @@ public class MainActivity extends Activity {
         layout.setPadding(25, 35, 25, 25);
         layout.setBackgroundColor(Color.rgb(15, 18, 30));
 
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(layout);
+
         TextView title = new TextView(this);
         title.setText("AB ANALYZER");
         title.setTextSize(30);
@@ -50,6 +44,8 @@ public class MainActivity extends Activity {
         subtitle.setTextColor(Color.LTGRAY);
         subtitle.setGravity(Gravity.CENTER);
         layout.addView(subtitle);
+
+        addSpace(layout);
 
         playerA = new EditText(this);
         playerA.setSingleLine(true);
@@ -73,100 +69,101 @@ public class MainActivity extends Activity {
         result.setTextColor(Color.WHITE);
         result.setTextSize(19);
         result.setGravity(Gravity.CENTER);
-        result.setPadding(5, 30, 5, 20);
+        result.setPadding(10, 30, 10, 20);
         layout.addView(result);
 
         analyze.setOnClickListener(v -> analyzeCards());
 
-        setContentView(layout);
+        setContentView(scroll);
     }
 
-    Card parseCard(String token) {
-        token = token.toUpperCase().trim();
+    private void addSpace(LinearLayout layout) {
+        TextView space = new TextView(this);
+        space.setText("\n");
+        layout.addView(space);
+    }
 
-        if (token.length() < 2) return null;
-
-        char suit = token.charAt(token.length() - 1);
-        String rankText = token.substring(0, token.length() - 1);
-
-        if ("SHDC".indexOf(suit) < 0) return null;
-
-        int rank;
-
-        switch (rankText) {
-            case "A": rank = 14; break;
-            case "K": rank = 13; break;
-            case "Q": rank = 12; break;
-            case "J": rank = 11; break;
+    private int rank(String s) {
+        switch (s) {
+            case "A": return 14;
+            case "K": return 13;
+            case "Q": return 12;
+            case "J": return 11;
+            case "T": return 10;
             default:
                 try {
-                    rank = Integer.parseInt(rankText);
+                    int n = Integer.parseInt(s);
+                    if (n >= 2 && n <= 9) return n;
                 } catch (Exception e) {
-                    return null;
+                    return -1;
                 }
+                return -1;
         }
-
-        if (rank < 2 || rank > 14) return null;
-
-        return new Card(rank, suit);
     }
 
-    Card[] parseHand(String input) {
+    private Hand evaluate(String input) {
         String[] parts = input.trim().toUpperCase()
                 .split("[,\\s]+");
 
-        if (parts.length != 3) return null;
+        if (parts.length != 3)
+            throw new IllegalArgumentException(
+                    "Enter exactly 3 cards."
+            );
 
-        Card[] cards = new Card[3];
+        int[] r = new int[3];
+        char[] s = new char[3];
+
+        Set<String> used = new HashSet<>();
 
         for (int i = 0; i < 3; i++) {
-            cards[i] = parseCard(parts[i]);
-            if (cards[i] == null) return null;
+            String card = parts[i];
+
+            if (card.length() < 2 || card.length() > 3)
+                throw new IllegalArgumentException("Invalid card: " + card);
+
+            String value = card.substring(0, card.length() - 1);
+            s[i] = card.charAt(card.length() - 1);
+
+            if ("SHDC".indexOf(s[i]) < 0)
+                throw new IllegalArgumentException("Invalid suit: " + card);
+
+            r[i] = rank(value);
+
+            if (r[i] < 0)
+                throw new IllegalArgumentException("Invalid rank: " + card);
+
+            if (!used.add(card))
+                throw new IllegalArgumentException("Duplicate card: " + card);
         }
-
-        return cards;
-    }
-
-    Hand evaluate(Card[] cards) {
-        int[] r = {
-            cards[0].rank,
-            cards[1].rank,
-            cards[2].rank
-        };
 
         Arrays.sort(r);
 
-        boolean flush =
-            cards[0].suit == cards[1].suit &&
-            cards[1].suit == cards[2].suit;
+        boolean flush = s[0] == s[1] && s[1] == s[2];
 
         boolean trail = r[0] == r[2];
+
         boolean pair = r[0] == r[1] || r[1] == r[2];
 
         boolean sequence =
-            (r[1] == r[0] + 1 && r[2] == r[1] + 1)
-            || (r[0] == 2 && r[1] == 3 && r[2] == 14);
+                (r[0] + 1 == r[1] && r[1] + 1 == r[2])
+                || (r[0] == 2 && r[1] == 3 && r[2] == 14);
 
         Hand h = new Hand();
 
         if (trail) {
             h.type = 6;
             h.name = "TRAIL";
-            h.tie = new int[]{r[0]};
+            h.tie = new int[]{r[2]};
         }
-        else if (sequence && flush) {
+        else if (flush && sequence) {
             h.type = 5;
             h.name = "PURE SEQUENCE";
-            h.tie = new int[]{
-                r[2] == 14 && r[1] == 3 ? 3 : r[2]
-            };
+            h.tie = sequenceHigh(r);
         }
         else if (sequence) {
             h.type = 4;
             h.name = "SEQUENCE";
-            h.tie = new int[]{
-                r[2] == 14 && r[1] == 3 ? 3 : r[2]
-            };
+            h.tie = sequenceHigh(r);
         }
         else if (flush) {
             h.type = 3;
@@ -174,17 +171,11 @@ public class MainActivity extends Activity {
             h.tie = new int[]{r[2], r[1], r[0]};
         }
         else if (pair) {
-            int p = r[1];
-            int kicker = r[0];
-
-            if (r[0] == r[1]) {
-                p = r[0];
-                kicker = r[2];
-            }
-
             h.type = 2;
             h.name = "PAIR";
-            h.tie = new int[]{p, kicker};
+            int p = r[1];
+            int k = r[0] == r[1] ? r[2] : r[0];
+            h.tie = new int[]{p, k};
         }
         else {
             h.type = 1;
@@ -195,11 +186,18 @@ public class MainActivity extends Activity {
         return h;
     }
 
-    int compare(Hand a, Hand b) {
+    private int[] sequenceHigh(int[] r) {
+        if (r[0] == 2 && r[1] == 3 && r[2] == 14)
+            return new int[]{13};
+
+        return new int[]{r[2]};
+    }
+
+    private int compare(Hand a, Hand b) {
         if (a.type != b.type)
             return Integer.compare(a.type, b.type);
 
-        for (int i = 0; i < a.tie.length; i++) {
+        for (int i = 0; i < Math.min(a.tie.length, b.tie.length); i++) {
             if (a.tie[i] != b.tie[i])
                 return Integer.compare(a.tie[i], b.tie[i]);
         }
@@ -207,51 +205,28 @@ public class MainActivity extends Activity {
         return 0;
     }
 
-    void analyzeCards() {
-        Card[] a = parseHand(playerA.getText().toString());
-        Card[] b = parseHand(playerB.getText().toString());
+    private void analyzeCards() {
+        try {
+            Hand a = evaluate(playerA.getText().toString());
+            Hand b = evaluate(playerB.getText().toString());
 
-        if (a == null || b == null) {
-            result.setText("ERROR!\nEnter 3 valid cards for each player.");
-            return;
+            int winner = compare(a, b);
+
+            String output =
+                    "PLAYER A: " + a.name +
+                    "\nPLAYER B: " + b.name + "\n\n";
+
+            if (winner > 0)
+                output += "WINNER: PLAYER A";
+            else if (winner < 0)
+                output += "WINNER: PLAYER B";
+            else
+                output += "RESULT: TIE";
+
+            result.setText(output);
+
+        } catch (Exception e) {
+            result.setText("ERROR: " + e.getMessage());
         }
-
-        HashSet<String> used = new HashSet<>();
-
-        for (Card c : a) {
-            used.add(c.rank + "" + c.suit);
-        }
-
-        for (Card c : b) {
-            String key = c.rank + "" + c.suit;
-
-            if (!used.add(key)) {
-                result.setText("ERROR!\nDuplicate card detected!");
-                return;
-            }
-        }
-
-        Hand handA = evaluate(a);
-        Hand handB = evaluate(b);
-
-        int winner = compare(handA, handB);
-
-        String output =
-            "PLAYER A: " + handA.name +
-            "\nPLAYER B: " + handB.name +
-            "\n\n";
-
-        if (winner > 0) {
-            output += "WINNER: PLAYER A";
-        }
-        else if (winner < 0) {
-            output += "WINNER: PLAYER B";
-        }
-        else {
-            output += "RESULT: TIE";
-        }
-
-        result.setText(output);
     }
-        }
-    
+}
