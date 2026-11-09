@@ -1,0 +1,15 @@
+AB Analyzer project file map
+
+.github/workflows/build.yml                         GitHub Actions APK build
+app/build.gradle                                    Android app build configuration
+app/proguard-rules.pro                              ProGuard placeholder
+app/src/main/AndroidManifest.xml                    App, activity, and capture service declarations
+app/src/main/java/com/ab/analyzer/MainActivity.java Main UI, hand comparison, local history, capture permission
+app/src/main/java/com/ab/analyzer/ScreenCaptureService.java MediaProjection capture and ML Kit OCR preview
+app/src/main/res/values/strings.xml                 App label
+app/src/main/res/values/styles.xml                  App theme
+build.gradle                                        Android Gradle Plugin declaration
+settings.gradle                                     Project and repository configuration
+gradle.properties                                  Gradle settings
+.gitignore                                          Generated/local files exclusions
+README.md                                           Setup and build instructions
