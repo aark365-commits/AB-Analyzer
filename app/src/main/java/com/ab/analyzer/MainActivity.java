@@ -218,7 +218,7 @@ public class MainActivity extends Activity {
             else if (winner < 0)
                 output += "WINNER: PLAYER B";
             else
-                output += "RESULT: TIE";
+           output += "RESULT: TIE";
 
             result.setText(output);
 
