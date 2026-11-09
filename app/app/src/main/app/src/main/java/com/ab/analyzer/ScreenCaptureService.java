@@ -30,8 +30,6 @@ import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
-import java.nio.ByteBuffer;
-
 public class ScreenCaptureService extends Service {
 
     private static final String TAG = "ABAnalyzer";
@@ -40,11 +38,13 @@ public class ScreenCaptureService extends Service {
     private MediaProjection projection;
     private VirtualDisplay virtualDisplay;
     private ImageReader imageReader;
+
     private HandlerThread handlerThread;
     private Handler handler;
     private TextRecognizer recognizer;
 
     private boolean processing = false;
+    private long lastScanTime = 0;
 
     private int screenWidth;
     private int screenHeight;
@@ -75,7 +75,6 @@ public class ScreenCaptureService extends Service {
         int resultCode = intent.getIntExtra("resultCode", 0);
 
         Intent data;
-
         if (Build.VERSION.SDK_INT >= 33) {
             data = intent.getParcelableExtra("data", Intent.class);
         } else {
@@ -83,7 +82,7 @@ public class ScreenCaptureService extends Service {
         }
 
         if (data == null) {
-            Log.e(TAG, "Screen capture permission data missing");
+            Log.e(TAG, "Permission data missing");
             stopSelf();
             return START_NOT_STICKY;
         }
@@ -91,7 +90,7 @@ public class ScreenCaptureService extends Service {
         try {
             startCapture(resultCode, data);
         } catch (Exception e) {
-            Log.e(TAG, "Capture start failed", e);
+            Log.e(TAG, "Capture failed", e);
             stopSelf();
         }
 
@@ -108,20 +107,20 @@ public class ScreenCaptureService extends Service {
         projection = manager.getMediaProjection(resultCode, data);
 
         if (projection == null) {
-            throw new IllegalStateException("MediaProjection unavailable");
+            throw new IllegalStateException("Projection unavailable");
         }
 
-        WindowManager windowManager =
+        WindowManager wm =
             (WindowManager) getSystemService(WINDOW_SERVICE);
 
         DisplayMetrics metrics = new DisplayMetrics();
-        windowManager.getDefaultDisplay().getRealMetrics(metrics);
+        wm.getDefaultDisplay().getRealMetrics(metrics);
 
         screenWidth = metrics.widthPixels;
         screenHeight = metrics.heightPixels;
         screenDensity = metrics.densityDpi;
 
-        handlerThread = new HandlerThread("ABScreenCapture");
+        handlerThread = new HandlerThread("ABScanner");
         handlerThread.start();
         handler = new Handler(handlerThread.getLooper());
 
@@ -137,7 +136,7 @@ public class ScreenCaptureService extends Service {
         );
 
         imageReader.setOnImageAvailableListener(
-            reader -> processLatestImage(reader),
+            this::processImage,
             handler
         );
 
@@ -145,7 +144,7 @@ public class ScreenCaptureService extends Service {
             new MediaProjection.Callback() {
                 @Override
                 public void onStop() {
-                    Log.d(TAG, "Screen capture stopped");
+                    Log.d(TAG, "Projection stopped");
                     stopCaptureResources();
                     stopSelf();
                 }
@@ -164,12 +163,18 @@ public class ScreenCaptureService extends Service {
             handler
         );
 
-        Log.d(TAG, "Screen capture started successfully");
+        Log.d(TAG, "FULL SCREEN SCANNER STARTED");
     }
 
-    private void processLatestImage(ImageReader reader) {
+    private void processImage(ImageReader reader) {
 
-        if (processing) return;
+        long now = System.currentTimeMillis();
+
+        if (processing || now - lastScanTime < 1000) {
+            Image skipped = reader.acquireLatestImage();
+            if (skipped != null) skipped.close();
+            return;
+        }
 
         Image image = null;
         Bitmap bitmap = null;
@@ -179,12 +184,10 @@ public class ScreenCaptureService extends Service {
 
             if (image == null) return;
 
-            Image.Plane[] planes = image.getPlanes();
+            Image.Plane plane = image.getPlanes()[0];
 
-            ByteBuffer buffer = planes[0].getBuffer();
-
-            int pixelStride = planes[0].getPixelStride();
-            int rowStride = planes[0].getRowStride();
+            int pixelStride = plane.getPixelStride();
+            int rowStride = plane.getRowStride();
 
             int rowPadding =
                 rowStride - pixelStride * screenWidth;
@@ -192,55 +195,77 @@ public class ScreenCaptureService extends Service {
             int paddedWidth =
                 screenWidth + rowPadding / pixelStride;
 
-            Bitmap paddedBitmap = Bitmap.createBitmap(
+            Bitmap padded = Bitmap.createBitmap(
                 paddedWidth,
                 screenHeight,
                 Bitmap.Config.ARGB_8888
             );
 
-            paddedBitmap.copyPixelsFromBuffer(buffer);
+            padded.copyPixelsFromBuffer(plane.getBuffer());
 
             bitmap = Bitmap.createBitmap(
-                paddedBitmap,
-                0,
-                0,
-                screenWidth,
-                screenHeight
+                padded, 0, 0,
+                screenWidth, screenHeight
             );
 
-            paddedBitmap.recycle();
+            padded.recycle();
 
         } catch (Exception e) {
-            Log.e(TAG, "Image conversion failed", e);
+            Log.e(TAG, "Bitmap conversion error", e);
         } finally {
-            if (image != null) {
-                image.close();
-            }
+            if (image != null) image.close();
         }
 
         if (bitmap == null) return;
 
         processing = true;
+        lastScanTime = now;
 
-        InputImage inputImage = InputImage.fromBitmap(bitmap, 0);
+        final Bitmap scanBitmap = bitmap;
 
-        Bitmap finalBitmap = bitmap;
+        try {
+            InputImage input = InputImage.fromBitmap(scanBitmap, 0);
 
-        recognizer.process(inputImage)
-            .addOnSuccessListener(visionText -> {
-                Log.d(TAG, "OCR RESULT:\n" + visionText.getText());
+            recognizer.process(input)
+                .addOnSuccessListener(this::handleOCR)
+                .addOnFailureListener(
+                    e -> Log.e(TAG, "OCR failed", e)
+                )
+                .addOnCompleteListener(task -> {
+                    scanBitmap.recycle();
+                    processing = false;
+                });
 
-                for (Text.TextBlock block : visionText.getTextBlocks()) {
-                    Log.d(TAG, "Detected: " + block.getText());
-                }
-            })
-            .addOnFailureListener(e ->
-                Log.e(TAG, "OCR failed", e)
-            )
-            .addOnCompleteListener(task -> {
-                finalBitmap.recycle();
-                processing = false;
-            });
+        } catch (Exception e) {
+            scanBitmap.recycle();
+            processing = false;
+            Log.e(TAG, "OCR start error", e);
+        }
+    }
+
+    private void handleOCR(Text visionText) {
+
+        StringBuilder output = new StringBuilder();
+
+        for (Text.TextBlock block : visionText.getTextBlocks()) {
+
+            android.graphics.Rect box = block.getBoundingBox();
+
+            if (box == null) continue;
+
+            output.append(block.getText())
+                .append(" | X:")
+                .append(box.left)
+                .append(" Y:")
+                .append(box.top)
+                .append(" W:")
+                .append(box.width())
+                .append(" H:")
+                .append(box.height())
+                .append("\n");
+        }
+
+        Log.d(TAG, "SCREEN OCR:\n" + output);
     }
 
     private void stopCaptureResources() {
@@ -251,6 +276,7 @@ public class ScreenCaptureService extends Service {
         }
 
         if (imageReader != null) {
+            imageReader.setOnImageAvailableListener(null, null);
             imageReader.close();
             imageReader = null;
         }
@@ -266,9 +292,7 @@ public class ScreenCaptureService extends Service {
             handler = null;
         }
 
-        if (projection != null) {
-            projection = null;
-        }
+        projection = null;
     }
 
     private void createNotificationChannel() {
@@ -278,14 +302,14 @@ public class ScreenCaptureService extends Service {
             NotificationChannel channel =
                 new NotificationChannel(
                     CHANNEL_ID,
-                    "AB Analyzer Screen Capture",
+                    "AB Analyzer Scanner",
                     NotificationManager.IMPORTANCE_LOW
                 );
 
-            NotificationManager manager =
+            NotificationManager nm =
                 getSystemService(NotificationManager.class);
 
-            manager.createNotificationChannel(channel);
+            nm.createNotificationChannel(channel);
         }
     }
 
@@ -294,14 +318,14 @@ public class ScreenCaptureService extends Service {
         if (Build.VERSION.SDK_INT >= 26) {
             return new Notification.Builder(this, CHANNEL_ID)
                 .setContentTitle("AB Analyzer")
-                .setContentText("Screen capture and OCR active")
+                .setContentText("Full screen scanning active")
                 .setSmallIcon(android.R.drawable.ic_menu_view)
                 .build();
         }
 
         return new Notification.Builder(this)
             .setContentTitle("AB Analyzer")
-            .setContentText("Screen capture active")
+            .setContentText("Screen scanning active")
             .setSmallIcon(android.R.drawable.ic_menu_view)
             .build();
     }
@@ -309,11 +333,12 @@ public class ScreenCaptureService extends Service {
     @Override
     public void onDestroy() {
 
+        MediaProjection oldProjection = projection;
+
         stopCaptureResources();
 
-        if (projection != null) {
-            projection.stop();
-            projection = null;
+        if (oldProjection != null) {
+            oldProjection.stop();
         }
 
         super.onDestroy();
@@ -323,4 +348,4 @@ public class ScreenCaptureService extends Service {
     public IBinder onBind(Intent intent) {
         return null;
     }
-    }
+}
