@@ -1,4 +1,3 @@
-
 package com.ab.analyzer;
 
 import android.app.Activity;
@@ -11,6 +10,8 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.*;
 import android.text.InputType;
+import android.provider.Settings;
+import android.net.Uri;
 
 import java.util.*;
 
@@ -47,7 +48,6 @@ public class MainActivity extends Activity {
     }
 
     Hand analyze(String input) {
-
         String[] cards = input.toUpperCase().trim().split("[,\\s]+");
 
         if (cards.length != 3)
@@ -60,7 +60,6 @@ public class MainActivity extends Activity {
         Set<String> unique = new HashSet<>();
 
         for (int i = 0; i < 3; i++) {
-
             String c = cards[i].trim();
 
             if (c.length() < 2)
@@ -86,7 +85,6 @@ public class MainActivity extends Activity {
         Arrays.sort(ranks);
 
         boolean trail = ranks[0] == ranks[2];
-
         boolean color = suits[0].equals(suits[1])
                      && suits[1].equals(suits[2]);
 
@@ -124,7 +122,6 @@ public class MainActivity extends Activity {
     }
 
     int sequenceValue(int[] r) {
-
         if (r[0] == 12 && r[1] == 13 && r[2] == 14)
             return 15;
 
@@ -138,7 +135,6 @@ public class MainActivity extends Activity {
     }
 
     int compare(Hand a, Hand b) {
-
         if (a.type != b.type)
             return Integer.compare(a.type, b.type);
 
@@ -151,9 +147,7 @@ public class MainActivity extends Activity {
     }
 
     void analyzePlayers() {
-
         try {
-
             Hand a = analyze(playerA.getText().toString());
             Hand b = analyze(playerB.getText().toString());
             Hand c = analyze(playerC.getText().toString());
@@ -186,7 +180,6 @@ public class MainActivity extends Activity {
             }
 
             StringBuilder output = new StringBuilder();
-
             output.append("AB ANALYZER RESULTS\n\n");
 
             for (int i = 0; i < 3; i++) {
@@ -220,6 +213,22 @@ public class MainActivity extends Activity {
 
     void requestScreenCapture() {
 
+        if (Build.VERSION.SDK_INT >= 23 &&
+                !Settings.canDrawOverlays(this)) {
+
+            Intent settingsIntent = new Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:" + getPackageName())
+            );
+
+            startActivity(settingsIntent);
+
+            captureStatus.setText(
+                "Allow Display over other apps, return and tap Start again."
+            );
+            return;
+        }
+
         projectionManager = (MediaProjectionManager)
                 getSystemService(MEDIA_PROJECTION_SERVICE);
 
@@ -234,49 +243,57 @@ public class MainActivity extends Activity {
         startActivityForResult(captureIntent, CAPTURE_REQUEST);
     }
 
+    void stopScanning() {
+        stopService(new Intent(this, ScreenCaptureService.class));
+        stopService(new Intent(this, FloatingPanelService.class));
+
+        captureStatus.setText("Screen scanning stopped.");
+        captureButton.setText("START SCREEN CAPTURE");
+    }
+
     @Override
     protected void onActivityResult(
             int requestCode, int resultCode, Intent data) {
 
         super.onActivityResult(requestCode, resultCode, data);
 
-        if (requestCode == CAPTURE_REQUEST) {
+        if (requestCode != CAPTURE_REQUEST) return;
 
-            if (resultCode == RESULT_OK && data != null) {
+        if (resultCode == RESULT_OK && data != null) {
 
-                Intent serviceIntent =
-                        new Intent(this, ScreenCaptureService.class);
+            Intent serviceIntent =
+                    new Intent(this, ScreenCaptureService.class);
 
-                serviceIntent.putExtra("resultCode", resultCode);
-                serviceIntent.putExtra("data", data);
+            serviceIntent.putExtra("resultCode", resultCode);
+            serviceIntent.putExtra("data", data);
 
-                try {
+            try {
+                if (Build.VERSION.SDK_INT >= 26)
+                    startForegroundService(serviceIntent);
+                else
+                    startService(serviceIntent);
 
-                    if (Build.VERSION.SDK_INT >= 26) {
-                        startForegroundService(serviceIntent);
-                    } else {
-                        startService(serviceIntent);
-                    }
+                Intent panelIntent =
+                        new Intent(this, FloatingPanelService.class);
 
-                    captureStatus.setText(
-                        "Screen capture permission granted. Service started."
-                    );
-
-                    captureButton.setText("SCREEN CAPTURE REQUESTED");
-
-                } catch (Exception e) {
-
-                    captureStatus.setText(
-                        "Service error: " + e.getMessage()
-                    );
-                }
-
-            } else {
+                startService(panelIntent);
 
                 captureStatus.setText(
-                    "Screen capture permission denied."
+                    "Screen capture and floating panel started."
+                );
+
+                captureButton.setText("SCREEN CAPTURE ACTIVE");
+
+            } catch (Exception e) {
+                captureStatus.setText(
+                    "Service error: " + e.getMessage()
                 );
             }
+
+        } else {
+            captureStatus.setText(
+                "Screen capture permission denied."
+            );
         }
     }
 
@@ -294,7 +311,7 @@ public class MainActivity extends Activity {
         scroll.addView(layout);
 
         TextView title = new TextView(this);
-        title.setText("AB ANALYZER V2");
+        title.setText("AB ANALYZER V3");
         title.setTextSize(30);
         title.setTextColor(Color.WHITE);
         title.setGravity(Gravity.CENTER);
@@ -334,26 +351,22 @@ public class MainActivity extends Activity {
         captureButton.setText("START SCREEN CAPTURE");
         layout.addView(captureButton);
 
+        Button stopButton = new Button(this);
+        stopButton.setText("STOP SCREEN SCAN");
+        layout.addView(stopButton);
+
         captureStatus = new TextView(this);
-        captureStatus.setText("Screen capture not started.");
+        captureStatus.setText("Screen scanning not started.");
         captureStatus.setTextColor(Color.LTGRAY);
         captureStatus.setTextSize(15);
         captureStatus.setPadding(5,15,5,15);
         layout.addView(captureStatus);
 
-        button.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                analyzePlayers();
-            }
-        });
+        button.setOnClickListener(v -> analyzePlayers());
 
-        captureButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                requestScreenCapture();
-            }
-        });
+        captureButton.setOnClickListener(v -> requestScreenCapture());
+
+        stopButton.setOnClickListener(v -> stopScanning());
 
         setContentView(scroll);
     }
@@ -380,5 +393,4 @@ public class MainActivity extends Activity {
 
         return input;
     }
-                            }
-            
+        }
