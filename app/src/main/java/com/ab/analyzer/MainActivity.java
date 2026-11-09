@@ -10,7 +10,7 @@ import java.util.*;
 
 public class MainActivity extends Activity {
 
-    EditText playerA, playerB;
+    EditText playerA, playerB, playerC;
     TextView result;
 
     static class Hand {
@@ -46,22 +46,12 @@ public class MainActivity extends Activity {
 
         addSpace(layout);
 
-        playerA = new EditText(this);
-        playerA.setSingleLine(true);
-        playerA.setHint("Player A: AS KH 2D");
-        playerA.setTextColor(Color.WHITE);
-        playerA.setHintTextColor(Color.GRAY);
-        layout.addView(playerA);
-
-        playerB = new EditText(this);
-        playerB.setSingleLine(true);
-        playerB.setHint("Player B: QS QH 5C");
-        playerB.setTextColor(Color.WHITE);
-        playerB.setHintTextColor(Color.GRAY);
-        layout.addView(playerB);
+        playerA = addPlayer(layout, "PLAYER A: AS KH 2D");
+        playerB = addPlayer(layout, "PLAYER B: QS QH 5C");
+        playerC = addPlayer(layout, "PLAYER C: JS JH 9D");
 
         Button analyze = new Button(this);
-        analyze.setText("ANALYZE CARDS");
+        analyze.setText("ANALYZE ALL 3 PLAYERS");
         layout.addView(analyze);
 
         result = new TextView(this);
@@ -74,6 +64,25 @@ public class MainActivity extends Activity {
         analyze.setOnClickListener(v -> analyzeCards());
 
         setContentView(scroll);
+    }
+
+    private EditText addPlayer(LinearLayout layout, String hint) {
+        TextView label = new TextView(this);
+        label.setText(hint.startsWith("PLAYER A") ? "PLAYER A" :
+                hint.startsWith("PLAYER B") ? "PLAYER B" : "PLAYER C");
+        label.setTextColor(Color.WHITE);
+        label.setTextSize(18);
+        layout.addView(label);
+
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setHint(hint);
+        input.setTextColor(Color.WHITE);
+        input.setHintTextColor(Color.GRAY);
+        layout.addView(input);
+
+        addSpace(layout);
+        return input;
     }
 
     private void addSpace(LinearLayout layout) {
@@ -100,19 +109,17 @@ public class MainActivity extends Activity {
         }
     }
 
-    private Hand evaluate(String input) {
+    private Hand evaluate(String input, Set<String> allUsed) {
+
         String[] parts = input.trim().toUpperCase()
                 .split("[,\\s]+");
 
         if (parts.length != 3)
             throw new IllegalArgumentException(
-                    "Enter exactly 3 cards."
-            );
+                    "Enter exactly 3 cards for each player.");
 
         int[] r = new int[3];
         char[] s = new char[3];
-
-        Set<String> used = new HashSet<>();
 
         for (int i = 0; i < 3; i++) {
             String card = parts[i];
@@ -131,7 +138,7 @@ public class MainActivity extends Activity {
             if (r[i] < 0)
                 throw new IllegalArgumentException("Invalid rank: " + card);
 
-            if (!used.add(card))
+            if (!allUsed.add(card))
                 throw new IllegalArgumentException("Duplicate card: " + card);
         }
 
@@ -204,26 +211,48 @@ public class MainActivity extends Activity {
 
     private void analyzeCards() {
         try {
-            Hand a = evaluate(playerA.getText().toString());
-            Hand b = evaluate(playerB.getText().toString());
+            Set<String> used = new HashSet<>();
 
-            int winner = compare(a, b);
+            Hand a = evaluate(playerA.getText().toString(), used);
+            Hand b = evaluate(playerB.getText().toString(), used);
+            Hand c = evaluate(playerC.getText().toString(), used);
 
-            String output =
-                    "PLAYER A: " + a.name +
-                    "\nPLAYER B: " + b.name + "\n\n";
+            Hand[] hands = {a, b, c};
+            String[] names = {"PLAYER A", "PLAYER B", "PLAYER C"};
 
-            if (winner > 0)
-                output += "WINNER: PLAYER A";
-            else if (winner < 0)
-                output += "WINNER: PLAYER B";
-            else
-           output += "RESULT: TIE";
+            StringBuilder output = new StringBuilder();
 
-            result.setText(output);
+            output.append("PLAYER A: ").append(a.name).append("\n");
+            output.append("PLAYER B: ").append(b.name).append("\n");
+            output.append("PLAYER C: ").append(c.name).append("\n\n");
+
+            int best = 0;
+
+            for (int i = 1; i < 3; i++) {
+                if (compare(hands[i], hands[best]) > 0) {
+                    best = i;
+                }
+            }
+
+            output.append("WINNER: ");
+
+            boolean first = true;
+
+            for (int i = 0; i < 3; i++) {
+                if (compare(hands[i], hands[best]) == 0) {
+                    if (!first) output.append(" & ");
+                    output.append(names[i]);
+                    first = false;
+                }
+            }
+
+            output.append("\n\nWinning Hand: ")
+                    .append(hands[best].name);
+
+            result.setText(output.toString());
 
         } catch (Exception e) {
             result.setText("ERROR: " + e.getMessage());
         }
     }
-                        }
+}
