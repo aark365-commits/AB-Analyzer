@@ -3,17 +3,26 @@ package com.ab.analyzer;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.os.Build;
+import android.content.Intent;
+import android.media.projection.MediaProjectionManager;
 import android.graphics.Color;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.*;
 import android.text.InputType;
+
 import java.util.*;
 
 public class MainActivity extends Activity {
 
     EditText playerA, playerB, playerC;
-    TextView result;
+    TextView result, captureStatus;
+    Button captureButton;
+
+    MediaProjectionManager projectionManager;
+
+    static final int CAPTURE_REQUEST = 1001;
 
     static class Hand {
         int type;
@@ -51,6 +60,7 @@ public class MainActivity extends Activity {
         Set<String> unique = new HashSet<>();
 
         for (int i = 0; i < 3; i++) {
+
             String c = cards[i].trim();
 
             if (c.length() < 2)
@@ -76,6 +86,7 @@ public class MainActivity extends Activity {
         Arrays.sort(ranks);
 
         boolean trail = ranks[0] == ranks[2];
+
         boolean color = suits[0].equals(suits[1])
                      && suits[1].equals(suits[2]);
 
@@ -142,6 +153,7 @@ public class MainActivity extends Activity {
     void analyzePlayers() {
 
         try {
+
             Hand a = analyze(playerA.getText().toString());
             Hand b = analyze(playerB.getText().toString());
             Hand c = analyze(playerC.getText().toString());
@@ -206,11 +218,76 @@ public class MainActivity extends Activity {
         }
     }
 
+    // SCREEN CAPTURE PERMISSION
+
+    void requestScreenCapture() {
+
+        projectionManager = (MediaProjectionManager)
+                getSystemService(MEDIA_PROJECTION_SERVICE);
+
+        if (projectionManager == null) {
+            captureStatus.setText("Screen capture is not available.");
+            return;
+        }
+
+        Intent captureIntent =
+                projectionManager.createScreenCaptureIntent();
+
+        startActivityForResult(captureIntent, CAPTURE_REQUEST);
+    }
+
+    @Override
+    protected void onActivityResult(
+            int requestCode, int resultCode, Intent data) {
+
+        super.onActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == CAPTURE_REQUEST) {
+
+            if (resultCode == RESULT_OK && data != null) {
+
+                Intent serviceIntent =
+                        new Intent(this, ScreenCaptureService.class);
+
+                serviceIntent.putExtra("resultCode", resultCode);
+                serviceIntent.putExtra("data", data);
+
+                try {
+
+                    if (Build.VERSION.SDK_INT >= 26) {
+                        startForegroundService(serviceIntent);
+                    } else {
+                        startService(serviceIntent);
+                    }
+
+                    captureStatus.setText(
+                        "Screen capture permission granted. Service started."
+                    );
+
+                    captureButton.setText("SCREEN CAPTURE REQUESTED");
+
+                } catch (Exception e) {
+
+                    captureStatus.setText(
+                        "Service error: " + e.getMessage()
+                    );
+                }
+
+            } else {
+
+                captureStatus.setText(
+                    "Screen capture permission denied."
+                );
+            }
+        }
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         ScrollView scroll = new ScrollView(this);
+
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(25,30,25,30);
@@ -219,14 +296,18 @@ public class MainActivity extends Activity {
         scroll.addView(layout);
 
         TextView title = new TextView(this);
-        title.setText("AB ANALYZER");
+        title.setText("AB ANALYZER V2");
         title.setTextSize(30);
         title.setTextColor(Color.WHITE);
         title.setGravity(Gravity.CENTER);
         layout.addView(title);
 
         TextView info = new TextView(this);
-        info.setText("\nEnter 3 cards for each player.\nExample: AS KH 2D\nS=Spades H=Hearts D=Diamonds C=Clubs");
+        info.setText(
+            "\nEnter 3 cards for each player.\n" +
+            "Example: AS KH 2D\n" +
+            "S=Spades H=Hearts D=Diamonds C=Clubs"
+        );
         info.setTextColor(Color.LTGRAY);
         info.setTextSize(15);
         layout.addView(info);
@@ -245,10 +326,34 @@ public class MainActivity extends Activity {
         result.setPadding(10,30,10,20);
         layout.addView(result);
 
+        TextView captureTitle = new TextView(this);
+        captureTitle.setText("\nAUTOMATIC SCREEN CAPTURE");
+        captureTitle.setTextColor(Color.WHITE);
+        captureTitle.setTextSize(20);
+        layout.addView(captureTitle);
+
+        captureButton = new Button(this);
+        captureButton.setText("START SCREEN CAPTURE");
+        layout.addView(captureButton);
+
+        captureStatus = new TextView(this);
+        captureStatus.setText("Screen capture not started.");
+        captureStatus.setTextColor(Color.LTGRAY);
+        captureStatus.setTextSize(15);
+        captureStatus.setPadding(5,15,5,15);
+        layout.addView(captureStatus);
+
         button.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 analyzePlayers();
+            }
+        });
+
+        captureButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                requestScreenCapture();
             }
         });
 
@@ -269,11 +374,12 @@ public class MainActivity extends Activity {
         input.setHintTextColor(Color.GRAY);
         input.setTextColor(Color.WHITE);
         input.setTextSize(18);
-        input.setInputType(InputType.TYPE_CLASS_TEXT
-                | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
+        input.setInputType(
+            InputType.TYPE_CLASS_TEXT |
+            InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+        );
         layout.addView(input);
 
         return input;
     }
-            }
-                
+    }
