@@ -3,205 +3,146 @@ package com.ab.analyzer;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.os.Build;
+import android.content.Intent;
+import android.media.projection.MediaProjectionManager;
 import android.graphics.Color;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.*;
+import android.text.InputType;
+
 import java.util.*;
 
 public class MainActivity extends Activity {
 
     EditText playerA, playerB, playerC;
-    TextView result;
+    TextView result, captureStatus;
+    Button captureButton;
+
+    MediaProjectionManager projectionManager;
+
+    static final int CAPTURE_REQUEST = 1001;
 
     static class Hand {
         int type;
         int[] tie;
         String name;
-    }
+        String cards;
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(25, 35, 25, 25);
-        layout.setBackgroundColor(Color.rgb(15, 18, 30));
-
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(layout);
-
-        TextView title = new TextView(this);
-        title.setText("AB ANALYZER");
-        title.setTextSize(30);
-        title.setTextColor(Color.WHITE);
-        title.setGravity(Gravity.CENTER);
-        layout.addView(title);
-
-        TextView subtitle = new TextView(this);
-        subtitle.setText("TEEN PATTI CARD ANALYZER");
-        subtitle.setTextColor(Color.LTGRAY);
-        subtitle.setGravity(Gravity.CENTER);
-        layout.addView(subtitle);
-
-        addSpace(layout);
-
-        playerA = addPlayer(layout, "PLAYER A: AS KH 2D");
-        playerB = addPlayer(layout, "PLAYER B: QS QH 5C");
-        playerC = addPlayer(layout, "PLAYER C: JS JH 9D");
-
-        Button analyze = new Button(this);
-        analyze.setText("ANALYZE ALL 3 PLAYERS");
-        layout.addView(analyze);
-
-        result = new TextView(this);
-        result.setTextColor(Color.WHITE);
-        result.setTextSize(19);
-        result.setGravity(Gravity.CENTER);
-        result.setPadding(10, 30, 10, 20);
-        layout.addView(result);
-
-        analyze.setOnClickListener(v -> analyzeCards());
-
-        setContentView(scroll);
-    }
-
-    private EditText addPlayer(LinearLayout layout, String hint) {
-        TextView label = new TextView(this);
-        label.setText(hint.startsWith("PLAYER A") ? "PLAYER A" :
-                hint.startsWith("PLAYER B") ? "PLAYER B" : "PLAYER C");
-        label.setTextColor(Color.WHITE);
-        label.setTextSize(18);
-        layout.addView(label);
-
-        EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setHint(hint);
-        input.setTextColor(Color.WHITE);
-        input.setHintTextColor(Color.GRAY);
-        layout.addView(input);
-
-        addSpace(layout);
-        return input;
-    }
-
-    private void addSpace(LinearLayout layout) {
-        TextView space = new TextView(this);
-        space.setText("\n");
-        layout.addView(space);
-    }
-
-    private int rank(String s) {
-        switch (s) {
-            case "A": return 14;
-            case "K": return 13;
-            case "Q": return 12;
-            case "J": return 11;
-            case "T": return 10;
-            default:
-                try {
-                    int n = Integer.parseInt(s);
-                    if (n >= 2 && n <= 9) return n;
-                } catch (Exception e) {
-                    return -1;
-                }
-                return -1;
+        Hand(int type, int[] tie, String name, String cards) {
+            this.type = type;
+            this.tie = tie;
+            this.name = name;
+            this.cards = cards;
         }
     }
 
-    private Hand evaluate(String input, Set<String> allUsed) {
+    int rankValue(String r) {
+        if (r.equals("A")) return 14;
+        if (r.equals("K")) return 13;
+        if (r.equals("Q")) return 12;
+        if (r.equals("J")) return 11;
+        return Integer.parseInt(r);
+    }
 
-        String[] parts = input.trim().toUpperCase()
-                .split("[,\\s]+");
+    Hand analyze(String input) {
 
-        if (parts.length != 3)
+        String[] cards = input.toUpperCase().trim().split("[,\\s]+");
+
+        if (cards.length != 3)
             throw new IllegalArgumentException(
-                    "Enter exactly 3 cards for each player.");
+                "Har player ke exactly 3 cards likho."
+            );
 
-        int[] r = new int[3];
-        char[] s = new char[3];
+        int[] ranks = new int[3];
+        String[] suits = new String[3];
+        Set<String> unique = new HashSet<>();
 
         for (int i = 0; i < 3; i++) {
-            String card = parts[i];
 
-            if (card.length() < 2 || card.length() > 3)
-                throw new IllegalArgumentException("Invalid card: " + card);
+            String c = cards[i].trim();
 
-            String value = card.substring(0, card.length() - 1);
-            s[i] = card.charAt(card.length() - 1);
+            if (c.length() < 2)
+                throw new IllegalArgumentException("Invalid card: " + c);
 
-            if ("SHDC".indexOf(s[i]) < 0)
-                throw new IllegalArgumentException("Invalid suit: " + card);
+            String r = c.substring(0, c.length() - 1);
+            String s = c.substring(c.length() - 1);
 
-            r[i] = rank(value);
+            if (!Arrays.asList("A","K","Q","J","10","9","8",
+                    "7","6","5","4","3","2").contains(r))
+                throw new IllegalArgumentException("Invalid rank: " + r);
 
-            if (r[i] < 0)
-                throw new IllegalArgumentException("Invalid rank: " + card);
+            if (!Arrays.asList("S","H","D","C").contains(s))
+                throw new IllegalArgumentException("Invalid suit: " + s);
 
-            if (!allUsed.add(card))
-                throw new IllegalArgumentException("Duplicate card: " + card);
+            if (!unique.add(c))
+                throw new IllegalArgumentException("Duplicate card: " + c);
+
+            ranks[i] = rankValue(r);
+            suits[i] = s;
         }
 
-        Arrays.sort(r);
+        Arrays.sort(ranks);
 
-        boolean flush = s[0] == s[1] && s[1] == s[2];
-        boolean trail = r[0] == r[2];
-        boolean pair = r[0] == r[1] || r[1] == r[2];
+        boolean trail = ranks[0] == ranks[2];
 
-        boolean sequence =
-                (r[0] + 1 == r[1] && r[1] + 1 == r[2])
-                || (r[0] == 2 && r[1] == 3 && r[2] == 14);
+        boolean color = suits[0].equals(suits[1])
+                     && suits[1].equals(suits[2]);
 
-        Hand h = new Hand();
+        int sequence = sequenceValue(ranks);
 
-        if (trail) {
-            h.type = 6;
-            h.name = "TRAIL";
-            h.tie = new int[]{r[2]};
-        }
-        else if (flush && sequence) {
-            h.type = 5;
-            h.name = "PURE SEQUENCE";
-            h.tie = sequenceHigh(r);
-        }
-        else if (sequence) {
-            h.type = 4;
-            h.name = "SEQUENCE";
-            h.tie = sequenceHigh(r);
-        }
-        else if (flush) {
-            h.type = 3;
-            h.name = "COLOR";
-            h.tie = new int[]{r[2], r[1], r[0]};
-        }
-        else if (pair) {
-            h.type = 2;
-            h.name = "PAIR";
-            int p = r[1];
-            int k = r[0] == r[1] ? r[2] : r[0];
-            h.tie = new int[]{p, k};
-        }
-        else {
-            h.type = 1;
-            h.name = "HIGH CARD";
-            h.tie = new int[]{r[2], r[1], r[0]};
-        }
+        int high = ranks[2];
+        int middle = ranks[1];
+        int low = ranks[0];
 
-        return h;
+        if (trail)
+            return new Hand(6, new int[]{high}, "TRAIL", input);
+
+        if (sequence > 0 && color)
+            return new Hand(5, new int[]{sequence},
+                    "PURE SEQUENCE", input);
+
+        if (sequence > 0)
+            return new Hand(4, new int[]{sequence},
+                    "SEQUENCE", input);
+
+        if (color)
+            return new Hand(3, new int[]{high,middle,low},
+                    "COLOR", input);
+
+        if (ranks[0] == ranks[1])
+            return new Hand(2, new int[]{ranks[0],ranks[2]},
+                    "PAIR", input);
+
+        if (ranks[1] == ranks[2])
+            return new Hand(2, new int[]{ranks[1],ranks[0]},
+                    "PAIR", input);
+
+        return new Hand(1, new int[]{high,middle,low},
+                "HIGH CARD", input);
     }
 
-    private int[] sequenceHigh(int[] r) {
+    int sequenceValue(int[] r) {
+
+        if (r[0] == 12 && r[1] == 13 && r[2] == 14)
+            return 15;
+
         if (r[0] == 2 && r[1] == 3 && r[2] == 14)
-            return new int[]{13};
+            return 14;
 
-        return new int[]{r[2]};
+        if (r[0] + 1 == r[1] && r[1] + 1 == r[2])
+            return r[2];
+
+        return 0;
     }
 
-    private int compare(Hand a, Hand b) {
+    int compare(Hand a, Hand b) {
+
         if (a.type != b.type)
             return Integer.compare(a.type, b.type);
 
-        for (int i = 0; i < Math.min(a.tie.length, b.tie.length); i++) {
+        for (int i = 0; i < a.tie.length; i++) {
             if (a.tie[i] != b.tie[i])
                 return Integer.compare(a.tie[i], b.tie[i]);
         }
@@ -209,45 +150,66 @@ public class MainActivity extends Activity {
         return 0;
     }
 
-    private void analyzeCards() {
+    void analyzePlayers() {
+
         try {
+
+            Hand a = analyze(playerA.getText().toString());
+            Hand b = analyze(playerB.getText().toString());
+            Hand c = analyze(playerC.getText().toString());
+
+            String[] all = {
+                playerA.getText().toString(),
+                playerB.getText().toString(),
+                playerC.getText().toString()
+            };
+
             Set<String> used = new HashSet<>();
 
-            Hand a = evaluate(playerA.getText().toString(), used);
-            Hand b = evaluate(playerB.getText().toString(), used);
-            Hand c = evaluate(playerC.getText().toString(), used);
+            for (String hand : all) {
+                for (String card : hand.toUpperCase().trim().split("[,\\s]+")) {
+                    if (!used.add(card))
+                        throw new IllegalArgumentException(
+                            "Same card multiple players mein use nahi ho sakta: " + card
+                        );
+                }
+            }
 
-            Hand[] hands = {a, b, c};
-            String[] names = {"PLAYER A", "PLAYER B", "PLAYER C"};
-
-            StringBuilder output = new StringBuilder();
-
-            output.append("PLAYER A: ").append(a.name).append("\n");
-            output.append("PLAYER B: ").append(b.name).append("\n");
-            output.append("PLAYER C: ").append(c.name).append("\n\n");
+            Hand[] hands = {a,b,c};
+            String[] names = {"PLAYER A","PLAYER B","PLAYER C"};
 
             int best = 0;
 
             for (int i = 1; i < 3; i++) {
-                if (compare(hands[i], hands[best]) > 0) {
+                if (compare(hands[i], hands[best]) > 0)
                     best = i;
-                }
             }
 
-            output.append("WINNER: ");
+            StringBuilder output = new StringBuilder();
 
-            boolean first = true;
+            output.append("AB ANALYZER RESULTS\n\n");
 
             for (int i = 0; i < 3; i++) {
-                if (compare(hands[i], hands[best]) == 0) {
-                    if (!first) output.append(" & ");
-                    output.append(names[i]);
-                    first = false;
-                }
+                output.append(names[i]).append("\n");
+                output.append("Cards: ").append(hands[i].cards).append("\n");
+                output.append("Hand: ").append(hands[i].name).append("\n\n");
             }
 
-            output.append("\n\nWinning Hand: ")
-                    .append(hands[best].name);
+            output.append("--------------------\n");
+
+            boolean tie = true;
+
+            for (int i = 0; i < 3; i++) {
+                if (compare(hands[i], hands[best]) != 0)
+                    tie = false;
+            }
+
+            if (tie) {
+                output.append("RESULT: THREE WAY TIE");
+            } else {
+                output.append("WINNER: ").append(names[best]);
+                output.append("\nWinning Hand: ").append(hands[best].name);
+            }
 
             result.setText(output.toString());
 
@@ -255,4 +217,168 @@ public class MainActivity extends Activity {
             result.setText("ERROR: " + e.getMessage());
         }
     }
-}
+
+    void requestScreenCapture() {
+
+        projectionManager = (MediaProjectionManager)
+                getSystemService(MEDIA_PROJECTION_SERVICE);
+
+        if (projectionManager == null) {
+            captureStatus.setText("Screen capture is not available.");
+            return;
+        }
+
+        Intent captureIntent =
+                projectionManager.createScreenCaptureIntent();
+
+        startActivityForResult(captureIntent, CAPTURE_REQUEST);
+    }
+
+    @Override
+    protected void onActivityResult(
+            int requestCode, int resultCode, Intent data) {
+
+        super.onActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == CAPTURE_REQUEST) {
+
+            if (resultCode == RESULT_OK && data != null) {
+
+                Intent serviceIntent =
+                        new Intent(this, ScreenCaptureService.class);
+
+                serviceIntent.putExtra("resultCode", resultCode);
+                serviceIntent.putExtra("data", data);
+
+                try {
+
+                    if (Build.VERSION.SDK_INT >= 26) {
+                        startForegroundService(serviceIntent);
+                    } else {
+                        startService(serviceIntent);
+                    }
+
+                    captureStatus.setText(
+                        "Screen capture permission granted. Service started."
+                    );
+
+                    captureButton.setText("SCREEN CAPTURE REQUESTED");
+
+                } catch (Exception e) {
+
+                    captureStatus.setText(
+                        "Service error: " + e.getMessage()
+                    );
+                }
+
+            } else {
+
+                captureStatus.setText(
+                    "Screen capture permission denied."
+                );
+            }
+        }
+    }
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        ScrollView scroll = new ScrollView(this);
+
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(25,30,25,30);
+        layout.setBackgroundColor(Color.rgb(18,22,32));
+
+        scroll.addView(layout);
+
+        TextView title = new TextView(this);
+        title.setText("AB ANALYZER V2");
+        title.setTextSize(30);
+        title.setTextColor(Color.WHITE);
+        title.setGravity(Gravity.CENTER);
+        layout.addView(title);
+
+        TextView info = new TextView(this);
+        info.setText(
+            "\nEnter 3 cards for each player.\n" +
+            "Example: AS KH 2D\n" +
+            "S=Spades H=Hearts D=Diamonds C=Clubs"
+        );
+        info.setTextColor(Color.LTGRAY);
+        info.setTextSize(15);
+        layout.addView(info);
+
+        playerA = addPlayer(layout, "PLAYER A");
+        playerB = addPlayer(layout, "PLAYER B");
+        playerC = addPlayer(layout, "PLAYER C");
+
+        Button button = new Button(this);
+        button.setText("ANALYZE ALL 3 PLAYERS");
+        layout.addView(button);
+
+        result = new TextView(this);
+        result.setTextColor(Color.WHITE);
+        result.setTextSize(18);
+        result.setPadding(10,30,10,20);
+        layout.addView(result);
+
+        TextView captureTitle = new TextView(this);
+        captureTitle.setText("\nAUTOMATIC SCREEN CAPTURE");
+        captureTitle.setTextColor(Color.WHITE);
+        captureTitle.setTextSize(20);
+        layout.addView(captureTitle);
+
+        captureButton = new Button(this);
+        captureButton.setText("START SCREEN CAPTURE");
+        layout.addView(captureButton);
+
+        captureStatus = new TextView(this);
+        captureStatus.setText("Screen capture not started.");
+        captureStatus.setTextColor(Color.LTGRAY);
+        captureStatus.setTextSize(15);
+        captureStatus.setPadding(5,15,5,15);
+        layout.addView(captureStatus);
+
+        button.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                analyzePlayers();
+            }
+        });
+
+        captureButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                requestScreenCapture();
+            }
+        });
+
+        setContentView(scroll);
+    }
+
+    EditText addPlayer(LinearLayout layout, String name) {
+
+        TextView label = new TextView(this);
+        label.setText("\n" + name);
+        label.setTextColor(Color.WHITE);
+        label.setTextSize(18);
+        layout.addView(label);
+
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setHint("Example: AS KH 2D");
+        input.setHintTextColor(Color.GRAY);
+        input.setTextColor(Color.WHITE);
+        input.setTextSize(18);
+        input.setInputType(
+            InputType.TYPE_CLASS_TEXT |
+            InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+        );
+        layout.addView(input);
+
+        return input;
+    }
+                            }
+            
