@@ -1,6 +1,8 @@
 
 package com.ab.analyzer;
-
+import android.content.Context;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import java.util.*;
 
 public class PredictionEngine {
@@ -169,3 +171,78 @@ public class PredictionEngine {
         return result.toString();
     }
 }
+
+public static String estimate(Context context, int window) {
+
+    JSONArray rounds = HistoryStore.rounds(context);
+
+    int total = Math.min(rounds.length(), window);
+
+    if (total == 0) {
+        return "NOT ENOUGH DATA\n\nSave confirmed rounds to generate historical analysis.";
+    }
+
+    int a = 0;
+    int b = 0;
+    int c = 0;
+    int ties = 0;
+
+    for (int i = 0; i < total; i++) {
+
+        JSONObject round = rounds.optJSONObject(i);
+
+        if (round == null) continue;
+
+        String winner = round.optString("winner", "");
+
+        switch (winner) {
+            case "A":
+                a++;
+                break;
+
+            case "B":
+                b++;
+                break;
+
+            case "C":
+                c++;
+                break;
+
+            case "TIE":
+                ties++;
+                break;
+        }
+    }
+
+    int valid = a + b + c;
+
+    if (valid == 0) {
+        return "No valid historical winners found.";
+    }
+
+    double pa = a * 100.0 / valid;
+    double pb = b * 100.0 / valid;
+    double pc = c * 100.0 / valid;
+
+    String leader = "TIE";
+
+    int max = Math.max(a, Math.max(b, c));
+
+    if (max == a && a > b && a > c) leader = "PLAYER A";
+    else if (max == b && b > a && b > c) leader = "PLAYER B";
+    else if (max == c && c > a && c > b) leader = "PLAYER C";
+
+    return String.format(Locale.US,
+        "SMART HISTORICAL ANALYSIS\n\n" +
+        "Rounds analyzed: %d\n\n" +
+        "Player A: %.1f%% (%d wins)\n" +
+        "Player B: %.1f%% (%d wins)\n" +
+        "Player C: %.1f%% (%d wins)\n\n" +
+        "Ties: %d\n\n" +
+        "Historical Leader: %s\n\n" +
+        "These are past-result frequencies, not guaranteed next-round predictions.",
+        valid, pa, a, pb, b, pc, c, ties, leader
+    );
+}
+
+
