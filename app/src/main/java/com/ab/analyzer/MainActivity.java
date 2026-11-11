@@ -7,390 +7,149 @@ import android.content.Intent;
 import android.media.projection.MediaProjectionManager;
 import android.graphics.Color;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.*;
-import android.text.InputType;
 import android.provider.Settings;
 import android.net.Uri;
 
-import java.util.*;
-
 public class MainActivity extends Activity {
-
-    EditText playerA, playerB, playerC;
-    TextView result, captureStatus;
-    Button captureButton;
-
-    MediaProjectionManager projectionManager;
-
-    static final int CAPTURE_REQUEST = 1001;
-
-    static class Hand {
-        int type;
-        int[] tie;
-        String name;
-        String cards;
-
-        Hand(int type, int[] tie, String name, String cards) {
-            this.type = type;
-            this.tie = tie;
-            this.name = name;
-            this.cards = cards;
-        }
-    }
-
-    int rankValue(String r) {
-        if (r.equals("A")) return 14;
-        if (r.equals("K")) return 13;
-        if (r.equals("Q")) return 12;
-        if (r.equals("J")) return 11;
-        return Integer.parseInt(r);
-    }
-
-    Hand analyze(String input) {
-        String[] cards = input.toUpperCase().trim().split("[,\\s]+");
-
-        if (cards.length != 3)
-            throw new IllegalArgumentException(
-                "Har player ke exactly 3 cards likho."
-            );
-
-        int[] ranks = new int[3];
-        String[] suits = new String[3];
-        Set<String> unique = new HashSet<>();
-
-        for (int i = 0; i < 3; i++) {
-            String c = cards[i].trim();
-
-            if (c.length() < 2)
-                throw new IllegalArgumentException("Invalid card: " + c);
-
-            String r = c.substring(0, c.length() - 1);
-            String s = c.substring(c.length() - 1);
-
-            if (!Arrays.asList("A","K","Q","J","10","9","8",
-                    "7","6","5","4","3","2").contains(r))
-                throw new IllegalArgumentException("Invalid rank: " + r);
-
-            if (!Arrays.asList("S","H","D","C").contains(s))
-                throw new IllegalArgumentException("Invalid suit: " + s);
-
-            if (!unique.add(c))
-                throw new IllegalArgumentException("Duplicate card: " + c);
-
-            ranks[i] = rankValue(r);
-            suits[i] = s;
-        }
-
-        Arrays.sort(ranks);
-
-        boolean trail = ranks[0] == ranks[2];
-        boolean color = suits[0].equals(suits[1])
-                     && suits[1].equals(suits[2]);
-
-        int sequence = sequenceValue(ranks);
-
-        int high = ranks[2];
-        int middle = ranks[1];
-        int low = ranks[0];
-
-        if (trail)
-            return new Hand(6, new int[]{high}, "TRAIL", input);
-
-        if (sequence > 0 && color)
-            return new Hand(5, new int[]{sequence},
-                    "PURE SEQUENCE", input);
-
-        if (sequence > 0)
-            return new Hand(4, new int[]{sequence},
-                    "SEQUENCE", input);
-
-        if (color)
-            return new Hand(3, new int[]{high,middle,low},
-                    "COLOR", input);
-
-        if (ranks[0] == ranks[1])
-            return new Hand(2, new int[]{ranks[0],ranks[2]},
-                    "PAIR", input);
-
-        if (ranks[1] == ranks[2])
-            return new Hand(2, new int[]{ranks[1],ranks[0]},
-                    "PAIR", input);
-
-        return new Hand(1, new int[]{high,middle,low},
-                "HIGH CARD", input);
-    }
-
-    int sequenceValue(int[] r) {
-        if (r[0] == 12 && r[1] == 13 && r[2] == 14)
-            return 15;
-
-        if (r[0] == 2 && r[1] == 3 && r[2] == 14)
-            return 14;
-
-        if (r[0] + 1 == r[1] && r[1] + 1 == r[2])
-            return r[2];
-
-        return 0;
-    }
-
-    int compare(Hand a, Hand b) {
-        if (a.type != b.type)
-            return Integer.compare(a.type, b.type);
-
-        for (int i = 0; i < a.tie.length; i++) {
-            if (a.tie[i] != b.tie[i])
-                return Integer.compare(a.tie[i], b.tie[i]);
-        }
-
-        return 0;
-    }
-
-    void analyzePlayers() {
-        try {
-            Hand a = analyze(playerA.getText().toString());
-            Hand b = analyze(playerB.getText().toString());
-            Hand c = analyze(playerC.getText().toString());
-
-            String[] all = {
-                playerA.getText().toString(),
-                playerB.getText().toString(),
-                playerC.getText().toString()
-            };
-
-            Set<String> used = new HashSet<>();
-
-            for (String hand : all) {
-                for (String card : hand.toUpperCase().trim().split("[,\\s]+")) {
-                    if (!used.add(card))
-                        throw new IllegalArgumentException(
-                            "Same card multiple players mein use nahi ho sakta: " + card
-                        );
-                }
-            }
-
-            Hand[] hands = {a,b,c};
-            String[] names = {"PLAYER A","PLAYER B","PLAYER C"};
-
-            int best = 0;
-
-            for (int i = 1; i < 3; i++) {
-                if (compare(hands[i], hands[best]) > 0)
-                    best = i;
-            }
-
-            StringBuilder output = new StringBuilder();
-            output.append("AB ANALYZER RESULTS\n\n");
-
-            for (int i = 0; i < 3; i++) {
-                output.append(names[i]).append("\n");
-                output.append("Cards: ").append(hands[i].cards).append("\n");
-                output.append("Hand: ").append(hands[i].name).append("\n\n");
-            }
-
-            output.append("--------------------\n");
-
-            boolean tie = true;
-
-            for (int i = 0; i < 3; i++) {
-                if (compare(hands[i], hands[best]) != 0)
-                    tie = false;
-            }
-
-            if (tie) {
-                output.append("RESULT: THREE WAY TIE");
-            } else {
-                output.append("WINNER: ").append(names[best]);
-                output.append("\nWinning Hand: ").append(hands[best].name);
-            }
-
-            result.setText(output.toString());
-
-        } catch (Exception e) {
-            result.setText("ERROR: " + e.getMessage());
-        }
-    }
-
-    void requestScreenCapture() {
-
-        if (Build.VERSION.SDK_INT >= 23 &&
-                !Settings.canDrawOverlays(this)) {
-
-            Intent settingsIntent = new Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:" + getPackageName())
-            );
-
-            startActivity(settingsIntent);
-
-            captureStatus.setText(
-                "Allow Display over other apps, return and tap Start again."
-            );
-            return;
-        }
-
-        projectionManager = (MediaProjectionManager)
-                getSystemService(MEDIA_PROJECTION_SERVICE);
-
-        if (projectionManager == null) {
-            captureStatus.setText("Screen capture is not available.");
-            return;
-        }
-
-        Intent captureIntent =
-                projectionManager.createScreenCaptureIntent();
-
-        startActivityForResult(captureIntent, CAPTURE_REQUEST);
-    }
-
-    void stopScanning() {
-        stopService(new Intent(this, ScreenCaptureService.class));
-        stopService(new Intent(this, FloatingPanelService.class));
-
-        captureStatus.setText("Screen scanning stopped.");
-        captureButton.setText("START SCREEN CAPTURE");
-    }
-
-    @Override
-    protected void onActivityResult(
-            int requestCode, int resultCode, Intent data) {
-
-        super.onActivityResult(requestCode, resultCode, data);
-
-        if (requestCode != CAPTURE_REQUEST) return;
-
-        if (resultCode == RESULT_OK && data != null) {
-
-            Intent serviceIntent =
-                    new Intent(this, ScreenCaptureService.class);
-
-            serviceIntent.putExtra("resultCode", resultCode);
-            serviceIntent.putExtra("data", data);
-
-            try {
-                if (Build.VERSION.SDK_INT >= 26)
-                    startForegroundService(serviceIntent);
-                else
-                    startService(serviceIntent);
-
-                Intent panelIntent =
-                        new Intent(this, FloatingPanelService.class);
-
-                startService(panelIntent);
-
-                captureStatus.setText(
-                    "Screen capture and floating panel started."
-                );
-
-                captureButton.setText("SCREEN CAPTURE ACTIVE");
-
-            } catch (Exception e) {
-                captureStatus.setText(
-                    "Service error: " + e.getMessage()
-                );
-            }
-
-        } else {
-            captureStatus.setText(
-                "Screen capture permission denied."
-            );
-        }
-    }
-
-    @Override
-    public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-
+    private static final int CAPTURE_REQUEST = 1001;
+    private MediaProjectionManager projectionManager;
+    private LinearLayout root;
+    private EditText playerA, playerB, playerC;
+    private TextView result, status, historyText;
+
+    @Override public void onCreate(Bundle state) {
+        super.onCreate(state);
         ScrollView scroll = new ScrollView(this);
+        root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(20), dp(20), dp(24));
+        root.setBackgroundColor(Color.rgb(10, 17, 28));
+        scroll.addView(root);
 
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(25,30,25,30);
-        layout.setBackgroundColor(Color.rgb(18,22,32));
-
-        scroll.addView(layout);
-
-        TextView title = new TextView(this);
-        title.setText("AB ANALYZER V3");
-        title.setTextSize(30);
-        title.setTextColor(Color.WHITE);
+        TextView title = label("AB ANALYZER V6", 28, 0xFFFFC58A);
         title.setGravity(Gravity.CENTER);
-        layout.addView(title);
+        root.addView(title);
+        root.addView(label("TRIMELA • SCREEN OCR • TEEN PATTI HAND ANALYSIS", 12, Color.LTGRAY));
 
-        TextView info = new TextView(this);
-        info.setText(
-            "\nEnter 3 cards for each player.\n" +
-            "Example: AS KH 2D\n" +
-            "S=Spades H=Hearts D=Diamonds C=Clubs"
-        );
-        info.setTextColor(Color.LTGRAY);
-        info.setTextSize(15);
-        layout.addView(info);
+        Button start = button("START SCREEN SCAN");
+        Button stop = button("STOP SCREEN SCAN");
+        root.addView(start);
+        root.addView(stop);
+        status = label("Scanner stopped. Start scan, then open StreamKar TriMela.", 14, Color.WHITE);
+        root.addView(status);
 
-        playerA = addPlayer(layout, "PLAYER A");
-        playerB = addPlayer(layout, "PLAYER B");
-        playerC = addPlayer(layout, "PLAYER C");
+        root.addView(label("MANUAL CARD ENTRY / CONFIRMATION", 18, 0xFFFFC58A));
+        root.addView(label("Format: AS KH 2D  |  S=Spades H=Hearts D=Diamonds C=Clubs", 12, Color.LTGRAY));
+        playerA = entry("Player A cards e.g. AS KH 2D");
+        playerB = entry("Player B cards e.g. 5S 5H QD");
+        playerC = entry("Player C cards e.g. 6C 8H JD");
 
-        Button button = new Button(this);
-        button.setText("ANALYZE ALL 3 PLAYERS");
-        layout.addView(button);
+        Button analyze = button("ANALYZE ALL 3 PLAYERS");
+        Button save = button("SAVE CONFIRMED ROUND");
+        root.addView(analyze);
+        root.addView(save);
+        result = label("Analysis result will appear here.", 15, Color.WHITE);
+        root.addView(result);
 
-        result = new TextView(this);
-        result.setTextColor(Color.WHITE);
-        result.setTextSize(18);
-        result.setPadding(10,30,10,20);
-        layout.addView(result);
+        root.addView(label("ROUND HISTORY", 18, 0xFFFFC58A));
+        Button history = button("VIEW SAVED HISTORY");
+        root.addView(history);
+        historyText = label("", 13, Color.LTGRAY);
+        root.addView(historyText);
 
-        TextView captureTitle = new TextView(this);
-        captureTitle.setText("\nAUTOMATIC SCREEN CAPTURE");
-        captureTitle.setTextColor(Color.WHITE);
-        captureTitle.setTextSize(20);
-        layout.addView(captureTitle);
-
-        captureButton = new Button(this);
-        captureButton.setText("START SCREEN CAPTURE");
-        layout.addView(captureButton);
-
-        Button stopButton = new Button(this);
-        stopButton.setText("STOP SCREEN SCAN");
-        layout.addView(stopButton);
-
-        captureStatus = new TextView(this);
-        captureStatus.setText("Screen scanning not started.");
-        captureStatus.setTextColor(Color.LTGRAY);
-        captureStatus.setTextSize(15);
-        captureStatus.setPadding(5,15,5,15);
-        layout.addView(captureStatus);
-
-        button.setOnClickListener(v -> analyzePlayers());
-
-        captureButton.setOnClickListener(v -> requestScreenCapture());
-
-        stopButton.setOnClickListener(v -> stopScanning());
-
+        start.setOnClickListener(v -> requestCapture());
+        stop.setOnClickListener(v -> stopScanning());
+        analyze.setOnClickListener(v -> analyzePlayers(false));
+        save.setOnClickListener(v -> analyzePlayers(true));
+        history.setOnClickListener(v -> historyText.setText(HistoryStore.summary(this)));
         setContentView(scroll);
     }
 
-    EditText addPlayer(LinearLayout layout, String name) {
-
-        TextView label = new TextView(this);
-        label.setText("\n" + name);
-        label.setTextColor(Color.WHITE);
-        label.setTextSize(18);
-        layout.addView(label);
-
-        EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setHint("Example: AS KH 2D");
-        input.setHintTextColor(Color.GRAY);
-        input.setTextColor(Color.WHITE);
-        input.setTextSize(18);
-        input.setInputType(
-            InputType.TYPE_CLASS_TEXT |
-            InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
-        );
-        layout.addView(input);
-
-        return input;
+    private int dp(int n) {
+        return (int)(n * getResources().getDisplayMetrics().density + 0.5f);
     }
+
+    private TextView label(String text, int size, int color) {
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextSize(size);
+        view.setTextColor(color);
+        view.setPadding(dp(4), dp(9), dp(4), dp(9));
+        return view;
+    }
+
+    private Button button(String text) {
+        Button b = new Button(this);
+        b.setText(text);
+        return b;
+    }
+
+    private EditText entry(String hint) {
+        EditText e = new EditText(this);
+        e.setSingleLine(true);
+        e.setHint(hint);
+        e.setTextColor(Color.WHITE);
+        e.setHintTextColor(0xFF888888);
+        e.setTextSize(16);
+        root.addView(e);
+        return e;
+    }
+
+    private void analyzePlayers(boolean saveRound) {
+        String a = playerA.getText().toString().trim();
+        String b = playerB.getText().toString().trim();
+        String c = playerC.getText().toString().trim();
+        String output = HandEngine.describe(a, b, c);
+        result.setText(output);
+
+        if (saveRound) {
+            String winner = HandEngine.winner(a, b, c);
+            if (winner.startsWith("ERROR")) {
+                status.setText(winner);
+                return;
+            }
+            HistoryStore.add(this, "Manual/Confirmed", winner, a, b, c);
+            status.setText("Confirmed round saved. Winner: " + winner);
+            historyText.setText(HistoryStore.summary(this));
         }
+    }
+
+    private void requestCapture() {
+        if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
+            Intent settings = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName()));
+            startActivity(settings);
+            status.setText("Allow Display over other apps, return, then tap START SCREEN SCAN again.");
+            return;
+        }
+        projectionManager = (MediaProjectionManager)getSystemService(MEDIA_PROJECTION_SERVICE);
+        if (projectionManager == null) {
+            status.setText("Screen capture is not available on this device.");
+            return;
+        }
+        startActivityForResult(projectionManager.createScreenCaptureIntent(), CAPTURE_REQUEST);
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != CAPTURE_REQUEST) return;
+        if (resultCode != RESULT_OK || data == null) {
+            status.setText("Screen capture permission was not granted.");
+            return;
+        }
+        Intent service = new Intent(this, ScreenCaptureService.class);
+        service.putExtra("resultCode", resultCode);
+        service.putExtra("data", data);
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
+        else startService(service);
+        startService(new Intent(this, FloatingPanelService.class));
+        status.setText("Screen capture active. Open StreamKar TriMela and keep the visible cards unobstructed.");
+    }
+
+    private void stopScanning() {
+        stopService(new Intent(this, ScreenCaptureService.class));
+        stopService(new Intent(this, FloatingPanelService.class));
+        status.setText("Screen scanning stopped.");
+    }
+}
