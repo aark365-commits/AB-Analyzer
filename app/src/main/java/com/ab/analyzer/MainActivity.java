@@ -17,7 +17,7 @@ public class MainActivity extends Activity {
     private static final int BG=0xFF08111F, PANEL=0xFF111E30, GOLD=0xFFFFC879, TEAL=0xFF24C6A5, WHITE=0xFFF1F5F9, MUTED=0xFF9AA9BC;
     private LinearLayout root;
     private EditText a,b,c,betA,betB,betC,stakeA,stakeB,stakeC,multiplier,fee;
-    private TextView scanStatus,result,history,analysis,payout;
+    private TextView scanStatus,result,history,analysis,prediction,payout;
     private Spinner windowSpinner, conventionSpinner;
     private BroadcastReceiver ocrReceiver;
     private String lastOcr="";
@@ -58,6 +58,7 @@ public class MainActivity extends Activity {
         windowSpinner=new Spinner(this);String[] opts={"15 rounds","20 rounds","30 rounds","100 rounds"};windowSpinner.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,opts));box.addView(windowSpinner);
         Button refresh=button("REFRESH ANALYSIS");box.addView(refresh);
         analysis=txt("Save confirmed rounds to build your local history.",13,WHITE);box.addView(analysis);
+        prediction=txt("Historical estimate will appear after saving rounds.",13,TEAL);box.addView(prediction);
         refresh.setOnClickListener(v->refreshAnalysis());
     }
     private void buildHistory(){
@@ -95,7 +96,7 @@ public class MainActivity extends Activity {
     private String value(EditText e){return e.getText().toString().trim();}
     private String valueOrZero(EditText e){String s=value(e);return s.isEmpty()?"0":s;}
     private int selectedWindow(){int p=windowSpinner.getSelectedItemPosition();return p==0?15:p==1?20:p==2?30:100;}
-    private void refreshAnalysis(){analysis.setText(HistoryStore.summary(this,selectedWindow()));}
+    private void refreshAnalysis(){analysis.setText(HistoryStore.summary(this,selectedWindow()));prediction.setText(PredictionEngine.estimate(this,selectedWindow()));}
     private void calculatePayout(){
         try{double aa=num(stakeA),bb=num(stakeB),cc=num(stakeC),m=num(multiplier),f=num(fee);
             boolean total=conventionSpinner.getSelectedItemPosition()==0;
