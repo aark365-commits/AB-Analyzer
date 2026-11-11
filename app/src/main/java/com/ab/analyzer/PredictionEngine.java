@@ -1,63 +1,171 @@
+
 package com.ab.analyzer;
 
-import android.content.Context;
-import org.json.JSONArray;
-import org.json.JSONObject;
+import java.util.*;
 
-/** Historical trend summary. This does not predict hidden cards or guarantee future results. */
-public final class PredictionEngine {
-    private PredictionEngine() {}
+public class PredictionEngine {
 
-    public static String estimate(Context context, int window) {
-        JSONArray rounds = HistoryStore.rounds(context);
-        int limit = Math.max(0, Math.min(rounds.length(), window));
-        int[] wins = new int[3];
-        int ties = 0;
-        int valid = 0;
+    private static final String[] PLAYERS = {"A", "B", "C"};
 
-        for (int i = 0; i < limit; i++) {
-            JSONObject round = rounds.optJSONObject(i);
-            if (round == null) continue;
-            String winner = round.optString("winner", "").trim().toUpperCase();
-            if ("A".equals(winner) || "B".equals(winner) || "C".equals(winner)) {
-                wins[winner.charAt(0) - 'A']++;
-                valid++;
-            } else if ("TIE".equals(winner)) {
-                ties++;
-            }
+    private static final Map<String, Integer> wins = new LinkedHashMap<>();
+    private static final Map<String, Integer> rounds = new LinkedHashMap<>();
+
+    static {
+        for (String p : PLAYERS) {
+            wins.put(p, 0);
+            rounds.put(p, 0);
         }
+    }
 
-        if (valid == 0) {
-            return "NOT ENOUGH DATA\n\nSave confirmed rounds with their actual winners to see historical frequencies.\n\nThese figures describe past results only; they are not guaranteed future probabilities.";
+    public static class HandResult {
+        public int rank;
+        public int[] values;
+        public String type;
+
+        HandResult(int rank, int[] values, String type) {
+            this.rank = rank;
+            this.values = values;
+            this.type = type;
         }
+    }
 
-        int leader = 0;
-        for (int i = 1; i < 3; i++) if (wins[i] > wins[leader]) leader = i;
-        boolean tiedLeader = (wins[0] == wins[1] && wins[1] >= wins[2])
-                || (wins[0] == wins[2] && wins[2] >= wins[1])
-                || (wins[1] == wins[2] && wins[2] >= wins[0]);
+    public static HandResult analyze(String[] cards) {
+        if (cards == null || cards.length != 3)
+            throw new IllegalArgumentException("Exactly 3 cards required");
 
-        StringBuilder out = new StringBuilder();
-        out.append("HISTORICAL TREND — LAST ").append(limit).append(" ROUNDS\n\n");
+        int[] ranks = new int[3];
+        String[] suits = new String[3];
+
         for (int i = 0; i < 3; i++) {
-            int percent = Math.round(wins[i] * 100f / valid);
-            out.append((char)('A' + i)).append(": ").append(wins[i]).append(" wins • ")
-                    .append(percent).append("% of decisive saved rounds\n");
-        }
-        out.append("Ties: ").append(ties).append("\n\n");
-        out.append("Historical leader: ");
-        if (tiedLeader) {
-            int max = Math.max(wins[0], Math.max(wins[1], wins[2]));
-            boolean first = true;
-            for (int i = 0; i < 3; i++) if (wins[i] == max) {
-                if (!first) out.append(" / ");
-                out.append((char)('A' + i));
-                first = false;
+            String card = cards[i].trim().toUpperCase();
+            String suit = card.substring(card.length() - 1);
+            String value = card.substring(0, card.length() - 1);
+
+            if (!Arrays.asList("S", "H", "D", "C").contains(suit))
+                throw new IllegalArgumentException("Invalid suit: " + card);
+
+            int r;
+            switch (value) {
+                case "A": r = 14; break;
+                case "K": r = 13; break;
+                case "Q": r = 12; break;
+                case "J": r = 11; break;
+                default:
+                    r = Integer.parseInt(value);
+                    if (r < 2 || r > 10)
+                        throw new IllegalArgumentException("Invalid card: " + card);
             }
-        } else {
-            out.append((char)('A' + leader));
+
+            ranks[i] = r;
+            suits[i] = suit;
         }
-        out.append("\n\nThis is a historical frequency, NOT a prediction of hidden cards or a reliable chance of winning the next round.");
-        return out.toString();
+
+        Arrays.sort(ranks);
+
+        boolean trail = ranks[0] == ranks[2];
+        boolean color = suits[0].equals(suits[1])
+                && suits[1].equals(suits[2]);
+
+        boolean pair = ranks[0] == ranks[1]
+                || ranks[1] == ranks[2];
+
+        boolean sequence = ranks[1] == ranks[0] + 1
+                && ranks[2] == ranks[1] + 1;
+
+        boolean aceLow = ranks[0] == 2
+                && ranks[1] == 3
+                && ranks[2] == 14;
+
+        if (aceLow) ranks = new int[]{1, 2, 3};
+
+        if (trail)
+            return new HandResult(6, ranks, "TRAIL");
+
+        if (sequence && color || aceLow && color)
+            return new HandResult(5, ranks, "PURE SEQUENCE");
+
+        if (sequence || aceLow)
+            return new HandResult(4, ranks, "SEQUENCE");
+
+        if (color)
+            return new HandResult(3, ranks, "COLOR");
+
+        if (pair)
+            return new HandResult(2, ranks, "PAIR");
+
+        return new HandResult(1, ranks, "HIGH CARD");
+    }
+
+    public static int compare(HandResult a, HandResult b) {
+        if (a.rank != b.rank)
+            return Integer.compare(a.rank, b.rank);
+
+        for (int i = 2; i >= 0; i--) {
+            if (a.values[i] != b.values[i])
+                return Integer.compare(a.values[i], b.values[i]);
+        }
+
+        return 0;
+    }
+
+    public static String predictWinner(
+            String[] playerA,
+            String[] playerB,
+            String[] playerC) {
+
+        HandResult a = analyze(playerA);
+        HandResult b = analyze(playerB);
+        HandResult c = analyze(playerC);
+
+        HandResult[] hands = {a, b, c};
+
+        int best = 0;
+        boolean tie = false;
+
+        for (int i = 1; i < 3; i++) {
+            int result = compare(hands[i], hands[best]);
+
+            if (result > 0) {
+                best = i;
+                tie = false;
+            } else if (result == 0) {
+                tie = true;
+            }
+        }
+
+        if (tie) return "TIE";
+
+        return PLAYERS[best];
+    }
+
+    public static void recordRound(String winner) {
+        if (!wins.containsKey(winner))
+            return;
+
+        wins.put(winner, wins.get(winner) + 1);
+
+        for (String p : PLAYERS)
+            rounds.put(p, rounds.get(p) + 1);
+    }
+
+    public static String getStatistics() {
+        StringBuilder result = new StringBuilder();
+
+        for (String p : PLAYERS) {
+            int total = rounds.get(p);
+            int won = wins.get(p);
+
+            double rate = total == 0 ? 0 :
+                    (won * 100.0 / total);
+
+            result.append("Player ").append(p)
+                    .append(": ")
+                    .append(won)
+                    .append(" wins | ")
+                    .append(String.format(Locale.US, "%.1f", rate))
+                    .append("%\n");
+        }
+
+        return result.toString();
     }
 }
