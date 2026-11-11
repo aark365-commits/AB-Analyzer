@@ -1,23 +1,35 @@
-# AB Analyzer V5 (Beta)
-
-Android companion app for visible TriMela screen OCR, manual Teen Patti hand comparison, and a local rolling history.
+# AB Analyzer V7 — Android source project
 
 ## Included
-- Compact 230dp draggable floating OCR panel with minimize/expand control.
-- User-authorized MediaProjection screen capture.
-- On-device Google ML Kit OCR.
-- Experimental normalized A/B/C card-region rank OCR based on the supplied portrait screenshot.
-- Manual A/B/C hand comparison and local history (up to 30 rounds).
-- Recent A/B/C winner frequency summary from saved rounds.
+- Dark dashboard UI for Android
+- Manual A/B/C three-card entry and Teen Patti hand comparison
+- Local confirmed-round history (up to 500), selected 15/20/30/100-round descriptive windows
+- Winner counts, streak summaries, latest-round list and CSV text export/share
+- Editable payout scenario calculator (multiplier and convention are configurable)
+- User-approved Android MediaProjection capture, on-device ML Kit text OCR and movable overlay
+- Local processing; no hidden game data or server access
 
-## Important limitations
-- Automatic card reading is experimental and calibrated to the supplied TriMela screenshot layout. Different device resolution, orientation, UI scaling, animations, banners, or overlays can shift the card regions.
-- This version attempts to read ranks from OCR text. It does not yet reliably identify all four suits, so it does not automatically confirm complete card hands or save unverified OCR outcomes.
-- History is saved from manually entered and confirmed rounds. The trend is descriptive frequency only; it cannot reliably predict the next independent random result. It never guarantees whether A, B, or C will win.
-- It only analyzes information visible on screen. It cannot see hidden cards or access StreamKar private systems.
+## Important implementation status
+The screen-capture service currently performs general text OCR. It does **not** yet reliably classify card ranks/suits, isolate A/B/C card regions, detect the official winner, or parse every bet amount. OCR output is displayed for human checking; manual confirmation is required before a round is saved. Those vision modules require representative StreamKar screenshots and device testing.
+
+The card-ranking engine implements common Teen Patti ordering and should be checked against the exact rules used in the target game before relying on tie-break outcomes.
+
+The history and payout modules are mathematical/record-keeping tools, not betting advice. Historical frequencies are not predictions and cannot reveal unrevealed cards. The payout calculator requires the user to enter the actual observed multiplier and payout convention.
 
 ## Build
-Open the project in Android Studio with JDK 17 and Android SDK 35. Gradle plugin 8.6.1. The GitHub Actions workflow in `.github/workflows/build.yml` builds a debug APK.
+Open this folder in Android Studio and build `app` > `assembleDebug`. Or use Gradle 8.7 and JDK 17:
+`gradle assembleDebug`
 
-## Permissions
-Screen capture starts only after the Android system permission prompt is accepted. Overlay permission is used only for the small floating panel. OCR runs on-device.
+Debug APK output:
+`app/build/outputs/apk/debug/app-debug.apk`
+
+## First run
+1. Install the debug APK.
+2. Open AB Analyzer.
+3. Tap START SCAN and approve Android's screen-capture prompt.
+4. Approve overlay permission if you want the floating panel.
+5. Open StreamKar TriMela. Pause/stop scanning from the app when finished.
+6. Enter/verify cards and visible bets manually before saving a round.
+
+## Privacy
+Frames are processed on-device by ML Kit. The app does not upload screen images. Android screen-capture and overlay permissions are requested only for their respective features.
